@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Simple UI Chat</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/themes/prism.min.css"
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="bg-dark">
+    <div class="chat-container container-fluid p-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="m-0 text-secondary">Ollama <small class="text-warning" id="current-model"></small></h4>
+            <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                <i class="bi bi-gear-fill"></i>
+            </button>
+        </div>
+
+        <!-- Settings Modal -->
+        <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel"
+            aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark-subtle">
+                    <div class="modal-header border-bottom border-secondary">
+                        <h5 class="modal-title" id="settingsModalLabel">Settings</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="model-select" class="form-label">Model</label>
+                            <select id="model-select" class="form-select">
+                                <option value="">Loading models...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="ollama-url-input" class="form-label">API URL</label>
+                            <div class="input-group">
+                                <input type="text" id="ollama-url-input" class="form-control">
+                                <button id="update-ollama-url-button" class="btn btn-outline-secondary"
+                                    title="Update API URL and refresh model list">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="system-prompt-input" class="form-label d-flex justify-content-between">
+                                System Prompt
+                                <small class="text-secondary">(Optional)</small>
+                            </label>
+                            <textarea id="system-prompt-input" class="form-control"
+                                placeholder="e.g., You are a helpful assistant that speaks like a pirate."
+                                rows="3"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-top border-secondary">
+                        <button id="reset-chat-button" class="btn btn-outline-danger" data-bs-toggle="tooltip"
+                            data-bs-title="Reset Chat"><i class="bi bi-trash3-fill me-1"></i>Reset Chat</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-messages flex-grow-1 overflow-auto p-3 mb-3 rounded bg-dark" id="chat-messages-area">
+        </div>
+
+        <div id="file-management-area" class="card bg-dark-subtle p-3 mb-3">
+            <input type="file" id="file-input-hidden" class="d-none"
+                accept=".txt,.md,.json,.csv,.py,.js,.html,.css,.xml,text/*,application/pdf,image/*" multiple>
+            <div id="selected-files-container" class="mb-2">
+            </div>
+            <p id="drop-zone-instruction" class="text-center mb-0">
+                <i class="bi bi-cloud-upload me-2"></i>Drag & Drop Files Here or Click to Upload
+            </p>
+        </div>
+
+        <div class="chat-input-area d-flex gap-2 p-3 bg-dark-subtle rounded">
+            <button id="toggle-files-button" class="btn btn-outline-secondary" data-bs-toggle="tooltip"
+                data-bs-title="Upload file">
+                <i class="bi bi-paperclip"></i>
+            </button>
+            <textarea id="user-input" class="form-control" placeholder="Type your message (Shift+Enter for new line)..."
+                rows="1"></textarea>
+            <button id="send-button" class="btn btn-light" data-bs-toggle="tooltip" data-bs-title="Send message"><i
+                    class="bi bi-send-fill me-1"></i>Send</button>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" crossorigin="anonymous"
+        referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <script type="text/javascript" id="MathJax-script" async
+        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"
+        referrerpolicy="no-referrer"></script>
+
+    <script src="script.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+</body>
+
+</html>

@@ -1,0 +1,665 @@
+window.MathJax = {
+    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true },
+    svg: { fontCache: 'global' },
+    startup: { ready: () => { console.log('MathJax is ready.'); MathJax.startup.defaultReady(); } }
+};
+
+
+if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+} else {
+    console.warn("pdf.js library not loaded. PDF parsing will not be available.");
+}
+
+let OLLAMA_API_URL = "http://localhost:11434";
+
+const modelSelect = document.getElementById('model-select');
+const systemPromptInput = document.getElementById('system-prompt-input');
+const chatMessagesArea = document.getElementById('chat-messages-area');
+const userInput = document.getElementById('user-input');
+const sendButton = document.getElementById('send-button');
+const resetChatButton = document.getElementById('reset-chat-button');
+const ollamaUrlInput = document.getElementById('ollama-url-input');
+const updateOllamaUrlButton = document.getElementById('update-ollama-url-button');
+const toggleFilesButton = document.getElementById('toggle-files-button');
+
+// Initialize the API URL input
+ollamaUrlInput.value = OLLAMA_API_URL;
+
+const fileManagementArea = document.getElementById('file-management-area');
+const fileInputHidden = document.getElementById('file-input-hidden');
+const selectedFilesContainer = document.getElementById('selected-files-container');
+const dropZoneInstruction = document.getElementById('drop-zone-instruction');
+
+let conversationHistory = [];
+let isAwaitingResponse = false;
+let currentAiMessageElement = null;
+let currentAiMessageContentDiv = null;
+let attachedFiles = [];
+
+const THINK_TAG_PLACEHOLDER_PREFIX = "%%THINK_BLOCK_ID_";
+const THINK_TAG_PLACEHOLDER_SUFFIX = "%%";
+
+marked.setOptions({
+    highlight: function (code, lang) {
+        if (Prism.languages[lang]) {
+            return Prism.highlight(code, Prism.languages[lang], lang);
+        } else if (lang) {
+            Prism.plugins.autoloader.loadLanguages(lang, () => { });
+            return code;
+        }
+        return Prism.highlight(code, Prism.languages.markup, 'markup');
+    },
+    gfm: true, breaks: true, pedantic: false, smartLists: true, smartypants: false, headerIds: false, mangle: false
+});
+
+function escapeHTML(str) {
+    if (!str) return '';
+    return str.replace(/[&<>'"]/g,
+        tag => ({
+            '&': '&',
+            '<': '<',
+            '>': '>',
+            "'": '\'',
+            '"': '"'
+        }[tag] || tag)
+    );
+}
+
+async function fetchModels() {
+    try {
+        const response = await fetch(`${OLLAMA_API_URL}/api/tags`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        populateModelSelector(data.models || []);
+    } catch (error) {
+        console.error("Error fetching models:", error);
+        const errorMessage = OLLAMA_API_URL.includes('localhost') || OLLAMA_API_URL.includes('127.0.0.1')
+            ? `Error: Cannot connect to ${OLLAMA_API_URL}. When using this web app from a hosted domain, you cannot connect to localhost. Please enter the public URL of your Ollama server.`
+            : `Error: Cannot connect to ${OLLAMA_API_URL}. Please check if the server is running and accessible.`;
+        modelSelect.innerHTML = `<option value="">${errorMessage}</option>`;
+    }
+}
+
+// Call fetchModels when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize API URL input
+    ollamaUrlInput.value = OLLAMA_API_URL;
+    // Fetch models on load
+    fetchModels();
+    // Focus user input
+    userInput.focus();
+});
+
+function updateCurrentModel() {
+    const currentModelElement = document.getElementById('current-model');
+    const selectedModel = modelSelect.value;
+    if (selectedModel) {
+        currentModelElement.textContent = `: ${selectedModel}`;
+    } else {
+        currentModelElement.textContent = '';
+    }
+}
+
+function populateModelSelector(models) {
+    modelSelect.innerHTML = '';
+    if (models.length === 0) {
+        modelSelect.innerHTML = '<option value="">No models found</option>';
+        updateCurrentModel();
+        return;
+    }
+    models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.name;
+        option.textContent = model.name;
+        modelSelect.appendChild(option);
+    });
+    updateCurrentModel();
+}
+
+// Add model change listener
+modelSelect.addEventListener('change', updateCurrentModel);
+
+function addCopyButtonsToCodeBlocks(parentElement) {
+    parentElement.querySelectorAll('pre').forEach(pre => {
+        // Only add button if it doesn't already exist
+        if (!pre.querySelector('.copy-code-button')) {
+            const button = document.createElement('button');
+            button.className = 'copy-code-button';
+            button.innerHTML = '<i class="bi bi-clipboard"></i>';  // Using Bootstrap icon
+
+            button.addEventListener('click', async () => {
+                const code = pre.querySelector('code')?.textContent || pre.textContent;
+                try {
+                    await navigator.clipboard.writeText(code);
+                    button.innerHTML = 'Copied!';
+                    button.classList.add('copied');
+                    setTimeout(() => {
+                        button.innerHTML = 'Copy';
+                        button.classList.remove('copied');
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy text:', err);
+                    button.innerHTML = 'Failed to copy';
+                    setTimeout(() => {
+                        button.innerHTML = 'Copy';
+                    }, 2000);
+                }
+            });
+
+            pre.appendChild(button);
+        }
+    });
+}
+
+function displayMessage(sender, textContent, isStreaming = false, attachedFilenamesArray = null) {
+    const messageBubble = document.createElement('div');
+    messageBubble.classList.add('message-bubble', sender.toLowerCase() + '-message');
+
+    const senderDiv = document.createElement('div');
+    senderDiv.classList.add('message-sender');
+    senderDiv.textContent = sender === 'User' ? 'You' : (modelSelect.value.split(':')[0] || 'AI');
+    messageBubble.appendChild(senderDiv); if (sender === 'User' && attachedFiles && attachedFiles.length > 0) {
+        // Create preview container for images
+        const previewContainer = document.createElement('div');
+        previewContainer.classList.add('attachment-preview');
+
+        // Add image previews
+        const imageFiles = attachedFiles.filter(file => file.type.startsWith('image/'));
+        const otherFiles = attachedFiles.filter(file => !file.type.startsWith('image/'));
+
+        // Add image previews
+        imageFiles.forEach(file => {
+            const img = document.createElement('img');
+            img.src = file.content;
+            img.alt = file.name;
+            img.title = file.name;
+            img.addEventListener('click', () => {
+                window.open(file.content, '_blank');
+            });
+            previewContainer.appendChild(img);
+        });
+
+        if (previewContainer.children.length > 0) {
+            messageBubble.appendChild(previewContainer);
+        }
+
+        // Add file names note
+        if (attachedFiles.length > 0) {
+            const attachmentNoteDiv = document.createElement('div');
+            attachmentNoteDiv.classList.add('attachment-note');
+            const filenamesString = attachedFiles.map(f => escapeHTML(f.name)).join(', ');
+            attachmentNoteDiv.innerHTML = `Attached file(s): ${filenamesString}`;
+            messageBubble.appendChild(attachmentNoteDiv);
+        }
+    }
+
+    const contentDiv = document.createElement('div');
+    contentDiv.classList.add('message-content');
+
+    if (isStreaming && sender === 'AI') {
+        contentDiv.innerHTML = "<em>Typing...</em>";
+        currentAiMessageElement = messageBubble;
+        currentAiMessageContentDiv = contentDiv;
+    } else {
+        contentDiv.innerHTML = marked.parse(textContent);
+        Prism.highlightAllUnder(contentDiv);
+        addCopyButtonsToCodeBlocks(contentDiv);
+        if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+            MathJax.typesetPromise([contentDiv])
+                .catch(err => console.warn(`MathJax processing error for ${sender} message:`, err));
+        }
+    }
+    messageBubble.appendChild(contentDiv);
+
+    const timestampDiv = document.createElement('div');
+    timestampDiv.classList.add('message-timestamp');
+    timestampDiv.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    messageBubble.appendChild(timestampDiv);
+
+    chatMessagesArea.appendChild(messageBubble);
+    scrollToBottom();
+    return { messageBubble, contentDiv };
+}
+
+function processThinkTagsInMarkdown(markdown) {
+    const thinkBlocks = []; let blockIdCounter = 0;
+    const processedMarkdown = markdown.replace(/<think>([\s\S]*?)<\/think>/g, (match, thinkContent) => {
+        const currentId = blockIdCounter++;
+        thinkBlocks.push({ id: `think-${Date.now()}-${currentId}`, rawContent: thinkContent });
+        return `${THINK_TAG_PLACEHOLDER_PREFIX}${thinkBlocks[thinkBlocks.length - 1].id}${THINK_TAG_PLACEHOLDER_SUFFIX}`;
+    });
+    return { processedMarkdown, thinkBlocks };
+}
+
+function renderThinkBlocksHTML(contentDiv, thinkBlocks) {
+    if (!thinkBlocks || thinkBlocks.length === 0) return;
+    let html = contentDiv.innerHTML;
+    thinkBlocks.forEach(block => {
+        const placeholder = `${THINK_TAG_PLACEHOLDER_PREFIX}${block.id}${THINK_TAG_PLACEHOLDER_SUFFIX}`;
+        const thinkSectionHtml = `
+                                    <div class="collapsible-think-section">
+                                        <div class="think-header" data-think-block-id="${block.id}">
+                                            <span>AI Thoughts</span> <span class="toggle-icon">[+]</span>
+                                        </div>
+                                        <div class="think-content" id="think-content-${block.id}" style="display:none;">
+                                            ${marked.parse(block.rawContent)}
+                                        </div>
+                                    </div>`;
+        const placeholderRegExp = new RegExp(RegExp.escape(placeholder), 'g');
+        html = html.replace(placeholderRegExp, thinkSectionHtml);
+    });
+    contentDiv.innerHTML = html;
+}
+
+if (!RegExp.escape) { RegExp.escape = function (s) { return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); }; }
+
+function addThinkBlockListeners(parentElement) {
+    parentElement.querySelectorAll('.think-header').forEach(header => {
+        if (header.dataset.listenerAttached === 'true') return;
+        header.addEventListener('click', () => {
+            const blockId = header.dataset.thinkBlockId;
+            const thinkContentElement = parentElement.querySelector(`#think-content-${blockId}`);
+            const toggleIcon = header.querySelector('.toggle-icon');
+            if (thinkContentElement) {
+                const isHidden = thinkContentElement.style.display === 'none';
+                thinkContentElement.style.display = isHidden ? 'block' : 'none';
+                toggleIcon.textContent = isHidden ? '[-]' : '[+]';
+                if (isHidden) {
+                    Prism.highlightAllUnder(thinkContentElement);
+                    if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+                        MathJax.typesetPromise([thinkContentElement]).catch(err => console.warn("MathJax (think):", err));
+                    }
+                }
+            }
+        });
+        header.dataset.listenerAttached = 'true';
+    });
+}
+
+function updateStreamingMessage(chunk) {
+    if (currentAiMessageContentDiv) {
+        if (currentAiMessageContentDiv.innerHTML === "<em>Typing...</em>") currentAiMessageContentDiv.innerHTML = '';
+        const currentRawMarkdown = (currentAiMessageContentDiv.dataset.rawMarkdown || "") + chunk;
+        currentAiMessageContentDiv.dataset.rawMarkdown = currentRawMarkdown; const { processedMarkdown, thinkBlocks } = processThinkTagsInMarkdown(currentRawMarkdown);
+        currentAiMessageContentDiv.innerHTML = marked.parse(processedMarkdown);
+        renderThinkBlocksHTML(currentAiMessageContentDiv, thinkBlocks);
+        addThinkBlockListeners(currentAiMessageContentDiv);
+        addCopyButtonsToCodeBlocks(currentAiMessageContentDiv);
+        scrollToBottom();
+    }
+}
+
+function finalizeAiMessage() {
+    if (currentAiMessageContentDiv && currentAiMessageContentDiv.dataset.rawMarkdown) {
+        const finalRawMarkdown = currentAiMessageContentDiv.dataset.rawMarkdown;
+        const { processedMarkdown, thinkBlocks } = processThinkTagsInMarkdown(finalRawMarkdown);
+        currentAiMessageContentDiv.innerHTML = marked.parse(processedMarkdown);
+        renderThinkBlocksHTML(currentAiMessageContentDiv, thinkBlocks);
+        addThinkBlockListeners(currentAiMessageContentDiv);
+        Prism.highlightAllUnder(currentAiMessageContentDiv);
+        if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+            MathJax.typesetPromise([currentAiMessageContentDiv]).catch(err => console.warn("MathJax (final):", err));
+        }
+    }
+    currentAiMessageElement = null; currentAiMessageContentDiv = null; scrollToBottom();
+}
+
+async function sendMessage() {
+    const messageText = userInput.value.trim();
+    const selectedModel = modelSelect.value;
+    const systemPrompt = systemPromptInput.value.trim();
+
+    // Hide file management area if it's visible
+    if (fileManagementArea.style.display === 'block') {
+        fileManagementArea.style.display = 'none';
+        toggleFilesButton.innerHTML = '<i class="bi bi-paperclip"></i>';
+    }
+
+    if ((!messageText && attachedFiles.length === 0) || !selectedModel || isAwaitingResponse) {
+        if (!selectedModel) alert("Please select a model or ensure API URL is correct.");
+        return;
+    } isAwaitingResponse = true;
+    sendButton.disabled = true;
+    sendButton.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading...</span></div>';
+    userInput.disabled = true;
+    fileManagementArea.classList.add('disabled-drop-zone');
+
+    displayMessage("User", messageText, false, attachedFiles.map(f => f.name));
+    userInput.value = '';
+
+    const aiMessageElements = displayMessage("AI", "<em>Typing...</em>", true);
+    currentAiMessageContentDiv = aiMessageElements.contentDiv;
+    currentAiMessageContentDiv.dataset.rawMarkdown = "";
+
+    let userMessageForApi = messageText;
+    const imagesForApi = [];
+    let textFileContentsForApi = "";
+
+    if (attachedFiles.length > 0) {
+        let filePreamble = "User has attached the following files:\n";
+        for (const file of attachedFiles) {
+            const safeFilename = escapeHTML(file.name);
+            filePreamble += `- "${safeFilename}" (${file.type})\n`; // Display original type
+
+            if (file.type.startsWith('image/')) {
+                imagesForApi.push(file.content.split(',')[1]);
+            } else { // Includes text files and PDF-extracted text
+                textFileContentsForApi += `\n\nContent of "${safeFilename}":\n\`\`\`\n${file.content}\n\`\`\`\n`;
+            }
+        }
+        userMessageForApi = `${filePreamble}${textFileContentsForApi}\nUser's typed message:\n${messageText || "(No typed message)"}`;
+    }
+
+
+    const messagesForApiPayload = [];
+    if (systemPrompt) messagesForApiPayload.push({ role: "system", content: systemPrompt });
+    messagesForApiPayload.push(...conversationHistory);
+    const currentUserMessagePayload = { role: "user", content: userMessageForApi };
+    if (imagesForApi.length > 0) {
+        currentUserMessagePayload.images = imagesForApi;
+    }
+    messagesForApiPayload.push(currentUserMessagePayload);
+
+    try {
+        const requestBody = {
+            model: selectedModel,
+            messages: messagesForApiPayload,
+            stream: true
+        };
+
+        const response = await fetch(`${OLLAMA_API_URL}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            throw new Error(`API error: ${response.status} ${response.statusText}. ${errorBody}`);
+        }
+
+        let historyUserContent = messageText;
+        if (attachedFiles.length > 0) {
+            const fileNamesForHistory = attachedFiles.map(f => escapeHTML(f.name)).join(', ');
+            historyUserContent = `(Files: ${fileNamesForHistory}) ${messageText || ""}`.trim();
+        }
+        conversationHistory.push({ role: "user", content: historyUserContent });
+
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let aiResponseContent = "";
+
+        if (currentAiMessageContentDiv.innerHTML === "<em>Typing...</em>") currentAiMessageContentDiv.innerHTML = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n').filter(line => line.trim() !== '');
+            for (const line of lines) {
+                try {
+                    const parsedLine = JSON.parse(line);
+                    if (parsedLine.message && parsedLine.message.content) {
+                        const contentPiece = parsedLine.message.content;
+                        aiResponseContent += contentPiece;
+                        updateStreamingMessage(contentPiece);
+                    }
+                } catch (e) { console.warn("Failed to parse JSON line:", line, e); }
+            }
+        }
+        conversationHistory.push({ role: "assistant", content: aiResponseContent });
+    } catch (error) {
+        console.error("Error sending message:", error);
+        const errorMessage = `**Error:** ${error.message || "An unknown error occurred."}`;
+        if (currentAiMessageContentDiv) {
+            currentAiMessageContentDiv.innerHTML = marked.parse(errorMessage);
+            Prism.highlightAllUnder(currentAiMessageContentDiv);
+            currentAiMessageContentDiv.dataset.rawMarkdown = errorMessage;
+        } else { displayMessage("AI", errorMessage); }
+    } finally {
+        finalizeAiMessage();
+        clearAllAttachedFiles();
+        isAwaitingResponse = false;
+        sendButton.disabled = false;
+        sendButton.innerHTML = '<i class="bi bi-send-fill me-1"></i>Send';
+        userInput.disabled = false;
+        fileManagementArea.classList.remove('disabled-drop-zone');
+        userInput.focus();
+    }
+}
+
+function renderAttachedFilesUI() {
+    selectedFilesContainer.innerHTML = '';
+    if (attachedFiles.length > 0) {
+        dropZoneInstruction.style.display = 'none';
+        selectedFilesContainer.style.display = 'block';
+        attachedFiles.forEach(file => {
+            const fileItem = document.createElement('div');
+            fileItem.classList.add('file-item');
+
+            const fileInfo = document.createElement('div');
+            fileInfo.classList.add('file-info');
+
+            if (file.type.startsWith('image/')) {
+                const thumbnail = document.createElement('img');
+                thumbnail.classList.add('file-thumbnail');
+                thumbnail.src = file.content;
+                thumbnail.alt = file.name;
+                fileInfo.appendChild(thumbnail);
+            } else {
+                const fileIcon = document.createElement('div');
+                fileIcon.classList.add('file-thumbnail');
+                fileIcon.innerHTML = '<i class="bi bi-file-text" style="font-size: 24px; line-height: 40px; text-align: center; display: block;"></i>';
+                fileInfo.appendChild(fileIcon);
+            }
+
+            const fileNameSpan = document.createElement('span');
+            fileNameSpan.textContent = file.name;
+            fileNameSpan.title = file.name;
+            fileInfo.appendChild(fileNameSpan);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.classList.add('remove-file-btn');
+            removeBtn.innerHTML = '×';
+            removeBtn.title = `Remove ${file.name}`;
+            removeBtn.dataset.fileId = file.id;
+            removeBtn.onclick = (e) => {
+                e.stopPropagation();
+                removeSpecificFile(file.id);
+            };
+
+            fileItem.appendChild(fileInfo);
+            fileItem.appendChild(removeBtn);
+            selectedFilesContainer.appendChild(fileItem);
+        });
+    } else {
+        dropZoneInstruction.style.display = 'block';
+        selectedFilesContainer.style.display = 'none';
+    }
+}
+
+async function extractTextFromPdf(arrayBuffer) {
+    if (typeof pdfjsLib === 'undefined') {
+        console.error("pdf.js is not loaded. Cannot parse PDF.");
+        return "[PDF.js library not loaded. Cannot extract text.]";
+    }
+    try {
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            fullText += pageText + '\n\n';
+        }
+        return fullText.trim();
+    } catch (error) {
+        console.error('Error parsing PDF:', error);
+        return `[Error extracting text from PDF: ${escapeHTML(error.message)}]`;
+    }
+}
+
+async function addFilesToList(files) {
+    for (const file of files) {
+        if (attachedFiles.some(f => f.name === file.name)) {
+            alert(`File "${escapeHTML(file.name)}" is already attached.`);
+            continue;
+        }
+        const fileId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const reader = new FileReader();
+
+        reader.onload = async (e) => {
+            let fileContent = e.target.result;
+            let fileType = file.type;
+
+            if (fileType === 'application/pdf') {
+                dropZoneInstruction.textContent = `Processing PDF: ${escapeHTML(file.name)}...`;
+                fileContent = await extractTextFromPdf(e.target.result);
+                dropZoneInstruction.textContent = 'Drag & Drop Files Here or Click to Upload';
+            }
+
+            attachedFiles.push({
+                id: fileId,
+                name: file.name,
+                content: fileContent,
+                type: fileType
+            });
+            renderAttachedFilesUI();
+        };
+
+        reader.onerror = (e) => {
+            console.error("Error reading file:", file.name, e);
+            alert("Error reading file: " + escapeHTML(file.name));
+            dropZoneInstruction.textContent = 'Drag & Drop Files Here or Click to Upload';
+        };
+
+        if (file.type === 'application/pdf') {
+            reader.readAsArrayBuffer(file);
+        } else if (file.type.startsWith('image/')) {
+            reader.readAsDataURL(file);
+        } else if (file.type.startsWith('text/') || file.type === 'application/json' || file.type === 'application/xml' || !file.type) {
+            reader.readAsText(file);
+        } else {
+            alert(`File type "${escapeHTML(file.type)}" for "${escapeHTML(file.name)}" may not be optimally supported. It will be treated as text if possible.`);
+            reader.readAsText(file);
+        }
+    }
+    fileInputHidden.value = '';
+}
+
+function removeSpecificFile(fileId) {
+    attachedFiles = attachedFiles.filter(f => f.id !== fileId);
+    renderAttachedFilesUI();
+    fileInputHidden.value = '';
+}
+
+function clearAllAttachedFiles() {
+    attachedFiles = [];
+    fileInputHidden.value = '';
+    renderAttachedFilesUI();
+}
+
+function resetChat() {
+    chatMessagesArea.innerHTML = '';
+    conversationHistory = [];
+    if (currentAiMessageContentDiv) {
+        currentAiMessageContentDiv.innerHTML = ''; currentAiMessageContentDiv.dataset.rawMarkdown = '';
+    }
+    finalizeAiMessage();
+    clearAllAttachedFiles();
+    isAwaitingResponse = false;
+    sendButton.disabled = false;
+    userInput.disabled = false;
+    fileManagementArea.classList.remove('disabled-drop-zone');
+    userInput.focus();
+    console.log("Chat reset.");
+}
+
+function scrollToBottom() { chatMessagesArea.scrollTop = chatMessagesArea.scrollHeight; }
+
+sendButton.addEventListener('click', sendMessage);
+resetChatButton.addEventListener('click', resetChat);
+userInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); }
+});
+
+updateOllamaUrlButton.addEventListener('click', () => {
+    const newUrl = ollamaUrlInput.value.trim();
+    if (newUrl && (newUrl.startsWith('http://') || newUrl.startsWith('https://'))) {
+        OLLAMA_API_URL = newUrl;
+        console.log(`Ollama API URL updated to: ${OLLAMA_API_URL}`);
+        modelSelect.innerHTML = `<option value="">Refreshing models from ${OLLAMA_API_URL}...</option>`;
+        fetchModels();
+    } else {
+        alert("Please enter a valid Ollama API URL (e.g., http://localhost:11434).");
+        ollamaUrlInput.value = OLLAMA_API_URL;
+    }
+});
+
+fileManagementArea.addEventListener('click', () => {
+    if (!fileManagementArea.classList.contains('disabled-drop-zone')) {
+        fileInputHidden.click();
+    }
+});
+
+fileInputHidden.addEventListener('change', (event) => {
+    if (event.target.files.length > 0) {
+        addFilesToList(event.target.files);
+    }
+});
+
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    fileManagementArea.addEventListener(eventName, preventDefaults, false);
+});
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+['dragenter', 'dragover'].forEach(eventName => {
+    fileManagementArea.addEventListener(eventName, () => {
+        if (!fileManagementArea.classList.contains('disabled-drop-zone')) {
+            fileManagementArea.classList.add('drag-over');
+        }
+    }, false);
+});
+['dragleave', 'drop'].forEach(eventName => {
+    fileManagementArea.addEventListener(eventName, () => {
+        if (!fileManagementArea.classList.contains('disabled-drop-zone')) {
+            fileManagementArea.classList.remove('drag-over');
+        }
+    }, false);
+});
+fileManagementArea.addEventListener('drop', (event) => {
+    if (!fileManagementArea.classList.contains('disabled-drop-zone')) {
+        const dt = event.dataTransfer;
+        const files = dt.files;
+        if (files && files.length > 0) {
+            addFilesToList(files);
+        }
+    }
+}, false);
+
+fileManagementArea.style.display = 'none';
+toggleFilesButton.innerHTML = '<i class="bi bi-paperclip"></i>';
+
+toggleFilesButton.addEventListener('click', () => {
+    const isHidden = fileManagementArea.style.display === 'none';
+    fileManagementArea.style.display = isHidden ? 'block' : 'none';
+});
+
+// Initialize tooltips
+const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+
+// Auto-resize textarea
+function autoResizeTextarea() {
+    userInput.style.height = '38px'; // Reset height to minimum
+    const scrollHeight = userInput.scrollHeight;
+    const maxHeight = parseInt(window.getComputedStyle(userInput).maxHeight);
+    userInput.style.height = Math.min(scrollHeight, maxHeight) + 'px';
+}
+
+userInput.addEventListener('input', autoResizeTextarea);
+userInput.addEventListener('keydown', autoResizeTextarea);
