@@ -2,7 +2,7 @@
 
 A modern, feature-rich web interface for interacting with Ollama AI models. This application provides a clean, user-friendly chat interface with support for code highlighting, file attachments, and markdown rendering.
 
-![Banner](banner/index_test.png)
+![Banner](banner/v1.0.0.png)
 
 ## Features
 
