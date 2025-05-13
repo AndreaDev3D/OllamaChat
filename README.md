@@ -2,7 +2,7 @@
 
 A modern, feature-rich web interface for interacting with Ollama AI models. This application provides a clean, user-friendly chat interface with support for code highlighting, file attachments, and markdown rendering.
 
-![Banner](banner/v1.0.0.png)
+![Banner](banner/OllamaUIChatBanner.png)
 
 ## Features
 
@@ -30,7 +30,7 @@ A modern, feature-rich web interface for interacting with Ollama AI models. This
 
 1. Clone this repository:
 ```powershell
-git clone [your-repository-url]
+git clone https://github.com/AndreaDev3D/OllamaChat
 cd OllamaChat
 ```
 
