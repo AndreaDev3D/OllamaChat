@@ -91,21 +91,22 @@ document.addEventListener('DOMContentLoaded', () => {
     userInput.focus();
 });
 
-function updateCurrentModel() {
-    const currentModelElement = document.getElementById('current-model');
-    const selectedModel = modelSelect.value;
-    if (selectedModel) {
-        currentModelElement.textContent = `: ${selectedModel}`;
-    } else {
-        currentModelElement.textContent = '';
-    }
-}
+
+// function updateCurrentModel() {
+//     const currentModelElement = document.getElementById('current-model');
+//     const selectedModel = modelSelect.value;
+//     if (selectedModel) {
+//         currentModelElement.textContent = `: ${selectedModel}`;
+//     } else {
+//         currentModelElement.textContent = '';
+//     }
+// }
 
 function populateModelSelector(models) {
     modelSelect.innerHTML = '';
     if (models.length === 0) {
         modelSelect.innerHTML = '<option value="">No models found</option>';
-        updateCurrentModel();
+        // updateCurrentModel();
         return;
     }
     models.forEach(model => {
@@ -114,11 +115,11 @@ function populateModelSelector(models) {
         option.textContent = model.name;
         modelSelect.appendChild(option);
     });
-    updateCurrentModel();
+    // updateCurrentModel();
 }
 
 // Add model change listener
-modelSelect.addEventListener('change', updateCurrentModel);
+// modelSelect.addEventListener('change', updateCurrentModel);
 
 function addCopyButtonsToCodeBlocks(parentElement) {
     parentElement.querySelectorAll('pre').forEach(pre => {
@@ -222,72 +223,87 @@ function displayMessage(sender, textContent, isStreaming = false, attachedFilena
     return { messageBubble, contentDiv };
 }
 
+function updateStreamingMessage(chunk) {
+    if (currentAiMessageContentDiv) {
+        currentAiMessageContentDiv.dataset.rawMarkdown = (currentAiMessageContentDiv.dataset.rawMarkdown || '') + chunk;
+        const { processedMarkdown, thinkBlocks } = processThinkTagsInMarkdown(currentAiMessageContentDiv.dataset.rawMarkdown);
+        const html = marked.parse(processedMarkdown);
+        currentAiMessageContentDiv.innerHTML = html;
+        renderThinkBlocksHTML(currentAiMessageContentDiv, thinkBlocks);
+        addCopyButtonsToCodeBlocks(currentAiMessageContentDiv);
+        MathJax.typesetPromise([currentAiMessageContentDiv]);
+        Prism.highlightAllUnder(currentAiMessageContentDiv);
+        scrollToBottom();
+    }
+}
+
 function processThinkTagsInMarkdown(markdown) {
-    const thinkBlocks = []; let blockIdCounter = 0;
+    const thinkBlocks = [];
+    let blockIdCounter = 0;
     const processedMarkdown = markdown.replace(/<think>([\s\S]*?)<\/think>/g, (match, thinkContent) => {
-        const currentId = blockIdCounter++;
-        thinkBlocks.push({ id: `think-${Date.now()}-${currentId}`, rawContent: thinkContent });
-        return `${THINK_TAG_PLACEHOLDER_PREFIX}${thinkBlocks[thinkBlocks.length - 1].id}${THINK_TAG_PLACEHOLDER_SUFFIX}`;
+        const blockId = blockIdCounter++;
+        thinkBlocks.push({
+            id: blockId,
+            content: thinkContent
+        });
+        return THINK_TAG_PLACEHOLDER_PREFIX + blockId + THINK_TAG_PLACEHOLDER_SUFFIX;
     });
     return { processedMarkdown, thinkBlocks };
 }
 
 function renderThinkBlocksHTML(contentDiv, thinkBlocks) {
-    if (!thinkBlocks || thinkBlocks.length === 0) return;
-    let html = contentDiv.innerHTML;
+    if (!thinkBlocks || thinkBlocks.length === 0) return; let html = contentDiv.innerHTML;
+    // Create a wrapper accordion for all think blocks in this message
+    const accordionWrapperId = `accordion-wrapper-${Date.now()}`;
+    html = `<div class="accordion" id="${accordionWrapperId}">${html}</div>`;
+
     thinkBlocks.forEach(block => {
-        const placeholder = `${THINK_TAG_PLACEHOLDER_PREFIX}${block.id}${THINK_TAG_PLACEHOLDER_SUFFIX}`;
-        const thinkSectionHtml = `
-                                    <div class="collapsible-think-section">
-                                        <div class="think-header" data-think-block-id="${block.id}">
-                                            <span>AI Thoughts</span> <span class="toggle-icon">[+]</span>
-                                        </div>
-                                        <div class="think-content" id="think-content-${block.id}" style="display:none;">
-                                            ${marked.parse(block.rawContent)}
-                                        </div>
-                                    </div>`;
-        const placeholderRegExp = new RegExp(RegExp.escape(placeholder), 'g');
-        html = html.replace(placeholderRegExp, thinkSectionHtml);
+        const placeholder = THINK_TAG_PLACEHOLDER_PREFIX + block.id + THINK_TAG_PLACEHOLDER_SUFFIX;
+        const thinkHTML = `
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header" id="heading-${block.id}">
+                    <button class="accordion-button collapsed" type="button" 
+                            data-bs-toggle="collapse" 
+                            data-bs-target="#think-content-${block.id}" 
+                            aria-expanded="false" 
+                            aria-controls="think-content-${block.id}">
+                        🤔 AI's thinking process
+                    </button>
+                </h2>
+                <div id="think-content-${block.id}" 
+                     class="accordion-collapse collapse" 
+                     data-bs-parent="#${accordionWrapperId}">
+                    <div class="accordion-body">
+                        ${marked.parse(block.content)}
+                    </div>
+                </div>
+            </div>
+        `;
+        html = html.replace(placeholder, thinkHTML);
     });
     contentDiv.innerHTML = html;
+    addThinkBlockListeners(contentDiv);
 }
-
-if (!RegExp.escape) { RegExp.escape = function (s) { return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); }; }
 
 function addThinkBlockListeners(parentElement) {
-    parentElement.querySelectorAll('.think-header').forEach(header => {
-        if (header.dataset.listenerAttached === 'true') return;
-        header.addEventListener('click', () => {
-            const blockId = header.dataset.thinkBlockId;
-            const thinkContentElement = parentElement.querySelector(`#think-content-${blockId}`);
-            const toggleIcon = header.querySelector('.toggle-icon');
-            if (thinkContentElement) {
-                const isHidden = thinkContentElement.style.display === 'none';
-                thinkContentElement.style.display = isHidden ? 'block' : 'none';
-                toggleIcon.textContent = isHidden ? '[-]' : '[+]';
-                if (isHidden) {
-                    Prism.highlightAllUnder(thinkContentElement);
-                    if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
-                        MathJax.typesetPromise([thinkContentElement]).catch(err => console.warn("MathJax (think):", err));
-                    }
-                }
-            }
-        });
-        header.dataset.listenerAttached = 'true';
-    });
-}
+    // Re-initialize Bootstrap collapse for dynamically added content
+    parentElement.querySelectorAll('.accordion-collapse').forEach(collapseEl => {
+        // Clean up any existing collapse instance
+        if (bootstrap.Collapse.getInstance(collapseEl)) {
+            bootstrap.Collapse.getInstance(collapseEl).dispose();
+        }
 
-function updateStreamingMessage(chunk) {
-    if (currentAiMessageContentDiv) {
-        if (currentAiMessageContentDiv.innerHTML === "<em>Typing...</em>") currentAiMessageContentDiv.innerHTML = '';
-        const currentRawMarkdown = (currentAiMessageContentDiv.dataset.rawMarkdown || "") + chunk;
-        currentAiMessageContentDiv.dataset.rawMarkdown = currentRawMarkdown; const { processedMarkdown, thinkBlocks } = processThinkTagsInMarkdown(currentRawMarkdown);
-        currentAiMessageContentDiv.innerHTML = marked.parse(processedMarkdown);
-        renderThinkBlocksHTML(currentAiMessageContentDiv, thinkBlocks);
-        addThinkBlockListeners(currentAiMessageContentDiv);
-        addCopyButtonsToCodeBlocks(currentAiMessageContentDiv);
-        scrollToBottom();
-    }
+        // Create new collapse instance
+        new bootstrap.Collapse(collapseEl, {
+            toggle: false
+        });        // Add content rendering on expand
+        collapseEl.addEventListener('shown.bs.collapse', () => {
+            if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+                MathJax.typesetPromise([collapseEl]);
+            }
+            Prism.highlightAllUnder(collapseEl);
+        });
+    });
 }
 
 function finalizeAiMessage() {
@@ -397,14 +413,20 @@ async function sendMessage() {
             const { done, value } = await reader.read();
             if (done) break;
             const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n').filter(line => line.trim() !== '');
-            for (const line of lines) {
+            const lines = chunk.split('\n').filter(line => line.trim() !== ''); for (const line of lines) {
                 try {
                     const parsedLine = JSON.parse(line);
                     if (parsedLine.message && parsedLine.message.content) {
                         const contentPiece = parsedLine.message.content;
-                        aiResponseContent += contentPiece;
-                        updateStreamingMessage(contentPiece);
+
+                        // If it starts with "AI Thoughts" or similar, wrap it in think tags
+                        if (contentPiece.includes("AI Thoughts") || contentPiece.includes("Let me") || contentPiece.includes("I'll") || contentPiece.includes("First,")) {
+                            aiResponseContent += `<think>${contentPiece}</think>`;
+                            updateStreamingMessage(`<think>${contentPiece}</think>`);
+                        } else {
+                            aiResponseContent += contentPiece;
+                            updateStreamingMessage(contentPiece);
+                        }
                     }
                 } catch (e) { console.warn("Failed to parse JSON line:", line, e); }
             }

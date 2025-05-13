@@ -107,7 +107,13 @@ pre[class*="language-"] {
     box-shadow: inset 0 1px 0 rgba(27, 31, 36, 0.075), 0 0 0 3px rgba(56, 139, 253, 0.3);
 }
 
-.model-selector {
+#model-select {
+    border: none !important;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+/* .model-selector {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -122,7 +128,7 @@ pre[class*="language-"] {
 .model-selector input[type="text"] {
     flex-grow: 1;
     width: auto;
-}
+} */
 
 /* #update-ollama-url-button {
     flex-shrink: 0;
@@ -188,8 +194,8 @@ pre[class*="language-"] {
 .message-bubble {
     padding: 12px 16px;
     border-radius: 6px;
-    min-width: 20rem;
-    max-width: 85%;
+    min-width: 75%;
+    max-width: 90%;
     word-wrap: break-word;
     line-height: 1.5;
     border: 1px solid var(--bs-border-color);
@@ -244,7 +250,6 @@ pre[class*="language-"] {
 }
 
 .ai-message {
-    min-width: 10rem;
     background-color: var(--bs-dark-bg-subtle);
     border-color: var(--bs-border-color);
     color: var(--bs-body-color);
@@ -257,33 +262,100 @@ pre[class*="language-"] {
 
 .collapsible-think-section {
     margin: 10px 0;
-    border: 1px dashed var(--bs-primary);
+    border: 1px solid var(--bs-border-color);
     border-radius: var(--bs-border-radius);
     background-color: var(--bs-dark);
+    overflow: hidden;
 }
 
-.collapsible-think-section .think-header {
-    cursor: pointer;
-    background-color: var(--bs-dark);
-    color: var(--bs-primary);
-    padding: 0.75rem 1rem;
+.collapsible-think-section .accordion-button {
+    padding: 8px 12px;
+    background-color: var(--bs-dark) !important;
+    color: var(--bs-secondary);
+    box-shadow: none !important;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 6px !important;
     font-size: 0.9em;
     font-weight: 500;
-    border-bottom: 1px dashed var(--bs-primary);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
 }
 
-.collapsible-think-section .think-header:hover {
-    background-color: var(--bs-dark-bg-subtle);
-}
-
-.collapsible-think-section .think-content {
-    padding: 1rem;
+.collapsible-think-section .accordion-button:not(.collapsed) {
+    color: var(--bs-light);
     background-color: var(--bs-dark);
+}
+
+.collapsible-think-section .accordion-button::after {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%236c757d'%3e%3cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3e%3c/svg%3e");
+    transition: transform .2s ease-in-out;
+}
+
+.collapsible-think-section .accordion-button:not(.collapsed)::after {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23dee2e6'%3e%3cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3e%3c/svg%3e");
+}
+
+.collapsible-think-section .accordion-button:hover {
+    color: var(--bs-light);
+    border-color: #388bfd;
+}
+
+.collapsible-think-section .accordion-button:focus {
+    border-color: #388bfd;
+    box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.3) !important;
+}
+
+.collapsible-think-section .accordion-collapse {
+    border: 1px solid var(--bs-border-color);
     border-top: none;
+    border-radius: 0 0 6px 6px;
+    margin-top: -1px;
+    background-color: var(--bs-dark);
+    color: var(--bs-secondary);
+    padding: 12px;
+}
+
+.collapsible-think-section .accordion-button {
+    background-color: var(--bs-dark);
+    color: var(--bs-secondary);
+    font-size: 0.9em;
+    font-weight: 500;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--bs-border-color);
+    box-shadow: none !important;
+}
+
+.collapsible-think-section .accordion-button:not(.collapsed) {
+    background-color: var(--bs-dark-bg-subtle);
+    color: var(--bs-light);
+    box-shadow: none !important;
+}
+
+.collapsible-think-section .accordion-button:hover {
+    background-color: var(--bs-dark-bg-subtle);
+    color: var(--bs-light);
+}
+
+.collapsible-think-section .accordion-button:focus {
+    border-color: var(--bs-border-color);
+    box-shadow: none !important;
+}
+
+.collapsible-think-section .accordion-button::after {
+    filter: invert(0.7);
+}
+
+.collapsible-think-section .accordion-collapse {
+    background-color: var(--bs-dark);
     font-size: 0.95em;
+    border: none;
+}
+
+.collapsible-think-section .accordion-body {
+    padding: 1rem;
+    border-top: 1px solid var(--bs-border-color);
+}
+
+.collapsible-think-section .accordion-item {
+    background-color: transparent;
 }
 
 .collapsible-think-section .think-content pre {
@@ -593,4 +665,81 @@ pre[class*="language-"] {
 /* Custom cursor styles */
 .cursor-pointer {
     cursor: pointer;
+}
+
+/* Accordion Styles */
+.message-content .accordion {
+    --bs-accordion-bg: transparent;
+    --bs-accordion-border-width: 0;
+    --bs-accordion-btn-padding-x: 8px;
+    --bs-accordion-btn-padding-y: 12px;
+    margin: 10px 0;
+}
+
+.message-content .accordion .accordion-button {
+    padding: 8px 12px;
+    background-color: var(--bs-dark) !important;
+    color: var(--bs-secondary);
+    box-shadow: none !important;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 6px !important;
+    /* font-size: 0.9em; */
+    font-weight: 500;
+    margin-bottom: 0;
+}
+
+.message-content .accordion .accordion-button:not(.collapsed) {
+    color: var(--bs-light);
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+}
+
+.message-content .accordion .accordion-button::after {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%236c757d'%3e%3cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3e%3c/svg%3e");
+    transition: transform .2s ease-in-out;
+}
+
+.message-content .accordion .accordion-button:not(.collapsed)::after {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23dee2e6'%3e%3cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3e%3c/svg%3e");
+}
+
+.message-content .accordion .accordion-button:hover {
+    color: var(--bs-light);
+    border-color: #388bfd;
+}
+
+.message-content .accordion .accordion-button:focus {
+    border-color: #388bfd;
+    box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.3) !important;
+}
+
+.message-content .accordion .accordion-collapse {
+    background-color: var(--bs-dark);
+    color: var(--bs-secondary);
+    padding: 0;
+    border: 1px solid var(--bs-border-color);
+    border-top: 0;
+    margin-top: -1px;
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+
+.message-content .accordion .accordion-body {
+    padding: 12px;
+    background-color: var(--bs-dark);
+    font-size: 0.95em;
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+
+.message-content .accordion .accordion-item {
+    background-color: transparent;
+    border: none !important;
+    padding-bottom: 0 !important;
+}
+
+.message-content .accordion .accordion-header {
+    border: none !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 0px !important;
 }

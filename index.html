@@ -17,7 +17,13 @@
 <body class="bg-dark">
     <div class="chat-container container-fluid p-3">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="m-0 text-secondary">Ollama <small class="text-warning" id="current-model"></small></h4>
+            <!-- <h4 class="m-0 text-secondary">Ollama :</h4> -->
+            <div class="mb-3 ms-0 me-auto mt-3">
+                <!-- <label for="model-select" class="form-label">Model</label> -->
+                <select id="model-select" class="form-select text-warning">
+                    <option value="">Loading models...</option>
+                </select>
+            </div>
             <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
                 <i class="bi bi-gear-fill"></i>
             </button>
@@ -33,12 +39,12 @@
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="mb-3">
+                        <!-- <div class="mb-3">
                             <label for="model-select" class="form-label">Model</label>
                             <select id="model-select" class="form-select">
                                 <option value="">Loading models...</option>
                             </select>
-                        </div>
+                        </div> -->
                         <div class="mb-3">
                             <label for="ollama-url-input" class="form-label">API URL</label>
                             <div class="input-group">
