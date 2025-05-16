@@ -91,22 +91,10 @@ document.addEventListener('DOMContentLoaded', () => {
     userInput.focus();
 });
 
-
-// function updateCurrentModel() {
-//     const currentModelElement = document.getElementById('current-model');
-//     const selectedModel = modelSelect.value;
-//     if (selectedModel) {
-//         currentModelElement.textContent = `: ${selectedModel}`;
-//     } else {
-//         currentModelElement.textContent = '';
-//     }
-// }
-
 function populateModelSelector(models) {
     modelSelect.innerHTML = '';
     if (models.length === 0) {
         modelSelect.innerHTML = '<option value="">No models found</option>';
-        // updateCurrentModel();
         return;
     }
     models.forEach(model => {
@@ -115,11 +103,7 @@ function populateModelSelector(models) {
         option.textContent = model.name;
         modelSelect.appendChild(option);
     });
-    // updateCurrentModel();
 }
-
-// Add model change listener
-// modelSelect.addEventListener('change', updateCurrentModel);
 
 function addCopyButtonsToCodeBlocks(parentElement) {
     parentElement.querySelectorAll('pre').forEach(pre => {
@@ -523,6 +507,65 @@ async function extractTextFromPdf(arrayBuffer) {
     }
 }
 
+async function extractDataFromSpreadsheet(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+
+                let result = '';
+
+                // Process each sheet
+                workbook.SheetNames.forEach((sheetName, sheetIndex) => {
+                    const worksheet = workbook.Sheets[sheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    // Add sheet name if there are multiple sheets
+                    if (workbook.SheetNames.length > 1) {
+                        result += `\nSheet: ${sheetName}\n`;
+                    }
+
+                    // Convert to markdown table format
+                    if (jsonData.length > 0 && jsonData[0].length > 0) {
+                        // Create header row using first row or column indices
+                        const headers = jsonData[0].length > 0 ? jsonData[0] : Array.from({ length: jsonData[0].length }, (_, i) => `Column ${i + 1}`);
+                        result += '| ' + headers.join(' | ') + ' |\n';
+                        // Create separator row
+                        result += '| ' + headers.map(() => '---').join(' | ') + ' |\n';
+                        // Create data rows
+                        for (let i = 1; i < jsonData.length; i++) {
+                            // Ensure all rows have the same number of columns
+                            while (jsonData[i].length < headers.length) {
+                                jsonData[i].push('');
+                            }
+                            // Convert all values to strings and escape any | characters
+                            const rowData = jsonData[i].map(cell => String(cell || '').replace(/\|/g, '\\|'));
+                            result += '| ' + rowData.join(' | ') + ' |\n';
+                        }
+                    } else {
+                        result += '*Empty sheet*\n';
+                    }
+
+                    // Add spacing between sheets
+                    if (sheetIndex < workbook.SheetNames.length - 1) {
+                        result += '\n---\n\n';
+                    }
+                });
+
+                resolve(result.trim());
+            } catch (error) {
+                reject(`Error processing spreadsheet: ${error.message}`);
+            }
+        };
+
+        reader.onerror = () => reject('Error reading file');
+        reader.readAsArrayBuffer(file);
+    });
+}
+
 async function addFilesToList(files) {
     for (const file of files) {
         if (attachedFiles.some(f => f.name === file.name)) {
@@ -536,28 +579,56 @@ async function addFilesToList(files) {
             let fileContent = e.target.result;
             let fileType = file.type;
 
-            if (fileType === 'application/pdf') {
-                dropZoneInstruction.textContent = `Processing PDF: ${escapeHTML(file.name)}...`;
-                fileContent = await extractTextFromPdf(e.target.result);
+            try {
+                if (fileType === 'application/pdf') {
+                    dropZoneInstruction.textContent = `Processing PDF: ${escapeHTML(file.name)}...`;
+                    fileContent = await extractTextFromPdf(e.target.result);
+                } else if (
+                    fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                    fileType === 'application/vnd.ms-excel' ||
+                    fileType === 'text/csv' ||
+                    file.name.endsWith('.xlsx') ||
+                    file.name.endsWith('.xls') ||
+                    file.name.endsWith('.csv')
+                ) {
+                    dropZoneInstruction.textContent = `Processing spreadsheet: ${escapeHTML(file.name)}...`;
+                    fileContent = await extractDataFromSpreadsheet(file);
+                }
+
+                attachedFiles.push({
+                    id: fileId,
+                    name: file.name,
+                    content: fileContent,
+                    type: fileType
+                });
+                renderAttachedFilesUI();
+            } catch (error) {
+                console.error("Error processing file:", error);
+                alert(`Error processing file ${escapeHTML(file.name)}: ${error.message}`);
+            } finally {
                 dropZoneInstruction.textContent = 'Drag & Drop Files Here or Click to Upload';
             }
-
-            attachedFiles.push({
-                id: fileId,
-                name: file.name,
-                content: fileContent,
-                type: fileType
-            });
-            renderAttachedFilesUI();
         };
 
         reader.onerror = (e) => {
             console.error("Error reading file:", file.name, e);
             alert("Error reading file: " + escapeHTML(file.name));
             dropZoneInstruction.textContent = 'Drag & Drop Files Here or Click to Upload';
-        };
+        };        // Determine the file type by both MIME type and extension
+        let fileType = file.type;
+        const isSpreadsheet = fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+            fileType === 'application/vnd.ms-excel' ||
+            fileType === 'text/csv' ||
+            file.name.endsWith('.xlsx') ||
+            file.name.endsWith('.xls') ||
+            file.name.endsWith('.csv');
 
-        if (file.type === 'application/pdf') {
+        // For CSV files that might be incorrectly typed
+        if (file.name.endsWith('.csv')) {
+            fileType = 'text/csv';
+        }
+
+        if (fileType === 'application/pdf' || isSpreadsheet) {
             reader.readAsArrayBuffer(file);
         } else if (file.type.startsWith('image/')) {
             reader.readAsDataURL(file);
