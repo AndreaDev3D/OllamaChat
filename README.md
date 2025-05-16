@@ -18,6 +18,7 @@ A modern, feature-rich web interface for interacting with Ollama AI models. This
   - Model selection
   - API URL configuration
   - Custom system prompts
+  - Multi-language support (🌐 en, es, fr, de, it, pl, zh, ja)
 - 📱 Responsive design
 
 ## Prerequisites
