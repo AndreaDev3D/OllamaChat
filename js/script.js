@@ -66,12 +66,24 @@ function escapeHTML(str) {
     );
 }
 
+// Store models data globally
+let modelTagsData = [];
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
 async function fetchModels() {
     try {
         const response = await fetch(`${OLLAMA_API_URL}/api/tags`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
-        populateModelSelector(data.models || []);
+        modelTagsData = data.models || []; // Store the models data
+        populateModelSelector(modelTagsData);
     } catch (error) {
         console.error("Error fetching models:", error);
         const errorMessage = OLLAMA_API_URL.includes('localhost') || OLLAMA_API_URL.includes('127.0.0.1')
@@ -97,8 +109,18 @@ function populateModelSelector(models) {
         modelSelect.innerHTML = '<option value="">No models found</option>';
         return;
     }
+
+    // Load the saved model from storage
+    const savedModel = loadSavedModel();
+
     models.forEach(model => {
         const option = document.createElement('option');
+        option.value = model.name;
+        option.textContent = model.name;
+        if (savedModel === model.name) {
+            option.selected = true;
+        }
+        modelSelect.appendChild(option);
         option.value = model.name;
         option.textContent = model.name;
         modelSelect.appendChild(option);
@@ -756,3 +778,423 @@ function autoResizeTextarea() {
 
 userInput.addEventListener('input', autoResizeTextarea);
 userInput.addEventListener('keydown', autoResizeTextarea);
+
+// Model information functions
+async function getModelDetails(modelName) {
+    try {
+        const response = await fetch(`${OLLAMA_API_URL}/api/show`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: modelName })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch model details: ${response.status}`);
+        }
+
+        const details = await response.json();
+        console.log(`Model details for ${modelName}:`, details); // Debug log
+        return details;
+    } catch (error) {
+        console.error(`Error fetching details for model ${modelName}:`, error);
+        return null;
+    }
+}
+
+async function updateModelsModal() {
+    const modelsContainer = document.getElementById('models-container');
+    modelsContainer.innerHTML = '<div class="text-center w-100"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+
+    try {
+        // Add download button to modal header
+        const modalHeader = document.querySelector('#modelsModal .modal-header');
+        if (modalHeader && !modalHeader.querySelector('.download-model-btn')) {
+            const closeBtn = modalHeader.querySelector('.btn-close');
+            const downloadBtn = document.createElement('button');
+            downloadBtn.className = 'btn btn-sm btn-outline-light download-model-btn me-2 btn-download-model';
+            downloadBtn.onclick = showDownloadModal;
+            downloadBtn.innerHTML = '<i class="bi bi-cloud-download"></i> Download Model';
+            modalHeader.insertBefore(downloadBtn, closeBtn);
+        }
+
+        // Get details for each model
+        const modelDetails = await Promise.all(
+            modelTagsData.map(async model => {
+                try {
+                    const showResponse = await fetch(`${OLLAMA_API_URL}/api/show`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: model.name })
+                    });
+
+                    if (!showResponse.ok) {
+                        throw new Error(`Failed to fetch model details: ${showResponse.status}`);
+                    }
+
+                    const details = await showResponse.json();
+                    return {
+                        name: model.name,
+                        details,
+                        size: model.size // Get size from the stored tags data
+                    };
+                } catch (error) {
+                    console.error(`Error fetching details for ${model.name}:`, error);
+                    return {
+                        name: model.name,
+                        details: null,
+                        size: model.size // Still include size even if details fetch fails
+                    };
+                }
+            })
+        );
+
+        modelsContainer.innerHTML = '';
+        modelDetails.forEach(({ name, details, size }) => {
+            if (!details) return;
+
+            const card = document.createElement('div');
+            card.className = 'col-md-12 col-lg-6';
+
+            const parameters = details.parameters || {};
+            const license = details.license || 'Not specified';
+            const modelType = details.modelfile?.split('\n')
+                .find(line => line.startsWith('FROM'))?.replace('FROM ', '') || 'Unknown';
+
+            const cardId = `model-${name.replace(/[^a-zA-Z0-9]/g, '-')}`;
+            const licenseAccordionId = `license-${cardId}`;
+            const modelTypeAccordionId = `model-type-${cardId}`;
+
+            card.innerHTML = `
+                <div class="card w-100 bg-dark">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="card-title mb-0">${name}</h5>
+                            ${size ? `<small class="text-muted">Size: ${formatBytes(size)}</small>` : ''}
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="showDeleteModelModal('${name}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        ${details.capabilities ? `<div class="mb-2">${details.capabilities.map(cap => `<span class='badge bg-primary me-1'>${cap}</span>`).join('')}</div>` : ''}
+                        
+                        <div class="accordion accordion-flush mb-2" id="details-${cardId}">
+                            <div class="accordion-item bg-transparent">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed bg-dark text-light p-0" type="button" 
+                                            data-bs-toggle="collapse" 
+                                            data-bs-target="#details-${cardId}-collapse">
+                                        <strong>Details</strong>
+                                    </button>
+                                </h2>
+                                <div id="details-${cardId}-collapse" class="accordion-collapse collapse">
+                                    <div class="accordion-body ps-0 pt-2">
+                                        <pre class="mb-0"><code>${JSON.stringify(details, null, 2)}</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="accordion accordion-flush mb-2" id="${licenseAccordionId}">
+                            <div class="accordion-item bg-transparent">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed bg-dark text-light p-0" type="button" 
+                                            data-bs-toggle="collapse" 
+                                            data-bs-target="#${licenseAccordionId}-collapse">
+                                        <strong>License</strong>
+                                    </button>
+                                </h2>
+                                <div id="${licenseAccordionId}-collapse" class="accordion-collapse collapse">
+                                    <div class="accordion-body ps-0 pt-2">
+                                        <pre class="mb-0"><code>${license}</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="accordion accordion-flush mb-2" id="${modelTypeAccordionId}">
+                            <div class="accordion-item bg-transparent">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed bg-dark text-light p-0" type="button" 
+                                            data-bs-toggle="collapse" 
+                                            data-bs-target="#${modelTypeAccordionId}-collapse">
+                                        <strong>Model Digest</strong>
+                                    </button>
+                                </h2>
+                                <div id="${modelTypeAccordionId}-collapse" class="accordion-collapse collapse">
+                                    <div class="accordion-body ps-0 pt-2">
+                                        <pre class="mb-0"><code>${modelType}</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `; modelsContainer.appendChild(card);
+            // Add copy buttons to all code blocks in this card
+            addCopyButtonsToCodeBlocks(card);
+        });
+    } catch (error) {
+        console.error('Error updating models modal:', error);
+        modelsContainer.innerHTML = `<div class="alert alert-danger">Error loading model details: ${error.message}</div>`;
+    }
+}
+
+// Event listener for models modal
+document.getElementById('modelsModal').addEventListener('show.bs.modal', updateModelsModal);
+
+// Refresh models info when API URL is updated
+updateOllamaUrlButton.addEventListener('click', () => {
+    const newUrl = ollamaUrlInput.value.trim();
+    if (newUrl && (newUrl.startsWith('http://') || newUrl.startsWith('https://'))) {
+        OLLAMA_API_URL = newUrl;
+        console.log(`Ollama API URL updated to: ${OLLAMA_API_URL}`);
+        modelSelect.innerHTML = `<option value="">Refreshing models from ${OLLAMA_API_URL}...</option>`;
+        fetchModels();
+        updateModelsModal();
+    } else {
+        alert("Please enter a valid Ollama API URL (e.g., http://localhost:11434).");
+        ollamaUrlInput.value = OLLAMA_API_URL;
+    }
+});
+
+// Download model functionality
+function showDownloadModal() {
+    const modalHtml = `
+        <div class="modal fade" id="downloadModelModal" tabindex="-1" aria-labelledby="downloadModelModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+        <div class="modal-content bg-dark text-light">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="downloadModelModalLabel">Download Model</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info" role="alert">
+                            <i class="bi bi-info-circle"></i> Browse available models at <a href="https://ollama.com/search" target="_blank" class="alert-link text-info">ollama.com/search</a>
+                        </div>
+                        <div class="mb-3">
+                            <label for="modelNameInput" class="form-label">Model Name</label>
+                            <input type="text" class="form-control bg-dark text-light" id="modelNameInput" 
+                                placeholder="e.g., nomic-embed-text:v1.5">
+                            <small class="text-muted">Enter the model name with optional version tag</small>
+                        </div>
+                        <div id="downloadProgress" class="d-none">
+                            <div class="progress mb-2">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                    role="progressbar" style="width: 0%" 
+                                    id="downloadProgressBar"></div>
+                            </div>
+                            <div id="downloadStatus" class="small text-muted"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" id="startDownloadBtn">Download</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Remove existing modal if it exists
+    const existingModal = document.getElementById('downloadModelModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // Add modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = new bootstrap.Modal(document.getElementById('downloadModelModal'));
+    const startDownloadBtn = document.getElementById('startDownloadBtn');
+    const modelNameInput = document.getElementById('modelNameInput');
+    const downloadProgress = document.getElementById('downloadProgress');
+    const downloadProgressBar = document.getElementById('downloadProgressBar');
+    const downloadStatus = document.getElementById('downloadStatus');
+
+    startDownloadBtn.addEventListener('click', async () => {
+        let modelName = modelNameInput.value.trim();
+
+        // Remove 'ollama pull' if present
+        modelName = modelName.replace(/^ollama\s+pull\s+/i, '');
+
+        if (!modelName) {
+            alert('Please enter a model name');
+            return;
+        }
+
+        startDownloadBtn.disabled = true;
+        downloadProgress.classList.remove('d-none');
+        downloadProgressBar.style.width = '0%';
+        downloadStatus.textContent = 'Starting download...';
+
+        try {
+            const response = await fetch(`${OLLAMA_API_URL}/api/pull`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: modelName }),
+            });
+
+            const reader = response.body.getReader();
+            let totalSize = 0;
+            let downloadedSize = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = new TextDecoder().decode(value);
+                const lines = chunk.split('\n').filter(line => line.trim());
+
+                for (const line of lines) {
+                    try {
+                        const status = JSON.parse(line);
+                        if (status.total) {
+                            totalSize = status.total;
+                            downloadedSize = status.completed;
+                            const progress = (downloadedSize / totalSize) * 100;
+                            downloadProgressBar.style.width = `${progress}%`;
+                            downloadStatus.textContent = `Downloading: ${formatBytes(downloadedSize)} / ${formatBytes(totalSize)}`;
+                        } else if (status.status) {
+                            downloadStatus.textContent = status.status;
+                        }
+                    } catch (e) {
+                        console.warn('Error parsing status:', e);
+                    }
+                }
+            }
+
+            downloadProgressBar.style.width = '100%';
+            downloadStatus.textContent = 'Download complete!';
+            setTimeout(() => {
+                modal.hide();
+                updateModelsModal(); // Refresh the models list
+            }, 1500);
+
+        } catch (error) {
+            console.error('Error downloading model:', error);
+            downloadStatus.textContent = `Error: ${error.message}`;
+            downloadProgressBar.classList.add('bg-danger');
+        } finally {
+            startDownloadBtn.disabled = false;
+        }
+    });
+
+    modal.show();
+}
+
+// Delete model functionality
+function showDeleteModelModal(modelName) {
+    const modalHtml = `
+        <div class="modal fade" id="deleteModelModal" tabindex="-1" aria-labelledby="deleteModelModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content bg-dark text-light">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="deleteModelModalLabel">Delete Model</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete the model <strong>${modelName}</strong>?</p>
+                        <p class="text-danger">This action cannot be undone.</p>
+                        <div id="deleteProgress" class="d-none">
+                            <div class="progress mb-2">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-danger" 
+                                    role="progressbar" style="width: 100%" 
+                                    id="deleteProgressBar"></div>
+                            </div>
+                            <div id="deleteStatus" class="small text-muted"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Remove existing modal if it exists
+    const existingModal = document.getElementById('deleteModelModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // Add modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = new bootstrap.Modal(document.getElementById('deleteModelModal'));
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    const deleteProgress = document.getElementById('deleteProgress');
+    const deleteStatus = document.getElementById('deleteStatus');
+
+    confirmDeleteBtn.addEventListener('click', async () => {
+        confirmDeleteBtn.disabled = true;
+        deleteProgress.classList.remove('d-none');
+        deleteStatus.textContent = 'Deleting model...';
+
+        try {
+            const response = await fetch(`${OLLAMA_API_URL}/api/delete`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: modelName }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to delete model: ${response.statusText}`);
+            } deleteStatus.textContent = 'Model deleted successfully!';
+            setTimeout(() => {
+                modal.hide();
+                // Show success notification
+                const toast = new bootstrap.Toast(Object.assign(document.createElement('div'), {
+                    className: 'toast align-items-center text-bg-success border-0 position-fixed top-0 start-50 translate-middle-x mt-3',
+                    role: 'alert',
+                    'aria-live': 'assertive',
+                    'aria-atomic': 'true',
+                    innerHTML: `
+                        <div class="d-flex">
+                            <div class="toast-body">
+                                Model "${modelName}" has been deleted successfully.
+                            </div>
+                            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                        </div>
+                    `
+                }));
+                document.body.appendChild(toast.element);
+                toast.show();
+
+                // Refresh both the model selector and the models modal
+                fetchModels();
+                updateModelsModal();
+            }, 1000);
+
+        } catch (error) {
+            console.error('Error deleting model:', error);
+            deleteStatus.textContent = `Error: ${error.message}`;
+            deleteProgress.querySelector('.progress-bar').classList.add('bg-danger');
+            // Show error notification
+            const toast = new bootstrap.Toast(Object.assign(document.createElement('div'), {
+                className: 'toast align-items-center text-bg-danger border-0 position-fixed top-0 start-50 translate-middle-x mt-3',
+                role: 'alert',
+                'aria-live': 'assertive',
+                'aria-atomic': 'true',
+                innerHTML: `
+                    <div class="d-flex">
+                        <div class="toast-body">
+                            Failed to delete model "${modelName}": ${error.message}
+                        </div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                    </div>
+                `
+            }));
+            document.body.appendChild(toast.element);
+            toast.show();
+        } finally {
+            confirmDeleteBtn.disabled = false;
+        }
+    });
+
+    modal.show();
+}

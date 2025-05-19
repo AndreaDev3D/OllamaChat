@@ -18,13 +18,17 @@
 <body class="bg-dark">
     <div class="chat-container container-fluid p-3">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="mb-3 ms-0 me-auto mt-3 d-flex align-items-center">
+            <div class="mb-3 ms-0 me-auto mt-3 d-flex align-items-center gap-2">
                 <!-- <img src="img/logo.png" alt="OUI Logo" class="me-2" style="width: 32px; height: 32px;"> -->
                 <select id="model-select" class="form-select">
                     <option value="">Loading models...</option>
                 </select>
+                <button id="models-info-button" class="btn btn-outline-secondary border-0" data-bs-toggle="modal"
+                    data-bs-target="#modelsModal" title="Model Information">
+                    <i class="bi bi-info-circle"></i>
+                </button>
             </div>
-            <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+            <button class="btn btn-outline-secondary border-0" data-bs-toggle="modal" data-bs-target="#settingsModal">
                 <i class="bi bi-gear-fill"></i>
             </button>
         </div>
@@ -68,6 +72,23 @@
                         <button id="reset-chat-button" class="btn btn-outline-danger" data-bs-toggle="tooltip"
                             data-i18n-title="reset_chat"><i class="bi bi-trash3-fill me-1"></i><span
                                 data-i18n="reset_chat">Reset Chat</span></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Models Information Modal -->
+        <div class="modal fade" id="modelsModal" tabindex="-1" aria-labelledby="modelsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-xl">
+                <div class="modal-content bg-dark-subtle">
+                    <div class="modal-header border-bottom border-secondary">
+                        <h5 class="modal-title" id="modelsModalLabel">Installed Models</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="models-container" class="row g-4">
+                            <!-- Model cards will be inserted here -->
+                        </div>
                     </div>
                 </div>
             </div>
@@ -121,6 +142,7 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
     <script src="js/localization.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="js/storage.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="js/script.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </body>
 
