@@ -38,6 +38,23 @@ cd OllamaChat
 2. Configure your Ollama server:
    - By default, the UI connects to `http://localhost:11434`
    - You can change the API URL in the settings (gear icon)
+   - **Important**: Configure CORS (Cross-Origin Resource Sharing) to allow web access:
+     - For development/testing (allows all origins):
+       ```powershell
+       $env:OLLAMA_ORIGINS="*"
+       ollama serve
+       ```
+     - For production (specify allowed origins):
+       ```powershell
+       $env:OLLAMA_ORIGINS="http://your-domain.com,http://localhost:8000"
+       ollama serve
+       ```
+     - On Linux/macOS, use:
+       ```bash
+       export OLLAMA_ORIGINS="*"
+       ollama serve
+       ```
+   - Without proper CORS configuration, the web UI will not be able to communicate with Ollama
 
 3. Serve the files:
    - You can use any web server to host the files
