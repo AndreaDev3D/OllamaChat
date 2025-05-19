@@ -398,6 +398,10 @@ pre[class*="language-"] {
     border-color: #a40e26;
 }
 
+.btn-download-model {
+    position: absolute;
+    right: 50px;
+}
 
 .chat-input-area {
     display: flex;
@@ -465,18 +469,23 @@ pre[class*="language-"] {
     right: 8px;
     padding: 4px 8px;
     font-size: 12px;
-    color: #c9d1d9;
+    color: #c9d1d1;
     background-color: #30363d;
     border: 1px solid #464f5b;
     border-radius: 4px;
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.2s ease-in-out;
+    transition: all 0.2s ease-in-out;
     z-index: 10;
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 32px;
+    justify-content: center;
 }
 
-.message-content pre:hover .copy-code-button {
+.message-content pre:hover .copy-code-button,
+.copy-code-button:focus {
     opacity: 1 !important;
     pointer-events: auto;
 }
@@ -733,4 +742,54 @@ pre[class*="language-"] {
     box-shadow: none;
     border-color: transparent;
 }
+
+.message-content .math {
+    position: relative;
+    padding: 8px 16px;
+    margin: 4px 0;
+    border-radius: var(--bs-border-radius);
+    overflow-x: auto;
+    font-size: 1.1em;
+}
+
+/* Display math (block) */
+.message-content .math mjx-container[jax="SVG"][display="true"] {
+    display: flex !important;
+    justify-content: center;
+    margin: 8px 0 !important;
+    min-width: 0;
+}
+
+/* Inline math */
+.message-content .math mjx-container[jax="SVG"]:not([display="true"]) {
+    display: inline-flex !important;
+    align-items: center;
+}
+
+.message-content .math:hover .copy-code-button {
+    opacity: 1 !important;
+    pointer-events: auto;
+}
+
+.math-wrapper {
+    position: relative;
+    margin: 1em 0;
+}
+
+.math-wrapper .math {
+    margin: 0;
+    overflow-x: auto;
+    font-size: 1.1em;
+}
+
+.math-wrapper .copy-code-button {
+    position: absolute;
+    top: 0;
+    right: 0;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+}
+
+.math-wrapper:hover .copy-code-button {
+    opacity: 1;
 }

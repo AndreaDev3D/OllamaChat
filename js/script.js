@@ -1,8 +1,47 @@
 window.MathJax = {
-    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true },
-    svg: { fontCache: 'global' },
-    startup: { ready: () => { console.log('MathJax is ready.'); MathJax.startup.defaultReady(); } }
+    loader: {
+        load: ['[tex]/ams', '[tex]/newcommand', '[tex]/configmacros']
+    },
+    tex: {
+        inlineMath: [['$', '$']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true,
+        processEnvironments: true,
+        packages: { '[+]': ['ams', 'newcommand', 'configmacros'] },
+        tags: 'none',
+        macros: {},
+        processRefs: true
+    },
+    options: {
+        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+        processHtmlClass: 'math'
+    },
+    startup: {
+        pageReady: () => {
+            console.log('MathJax page is ready');
+            return MathJax.startup.defaultPageReady();
+        },
+        ready: () => {
+            console.log('MathJax is ready');
+            MathJax.startup.defaultReady();
+        }
+    }
 };
+
+// Create a promise to track MathJax readiness
+window.mathJaxReady = new Promise((resolve) => {
+    if (window.MathJax && window.MathJax.typesetPromise) {
+        resolve();
+    } else {
+        window.addEventListener('load', function checkMathJax() {
+            if (window.MathJax && window.MathJax.typesetPromise) {
+                resolve();
+            } else {
+                setTimeout(checkMathJax, 100);
+            }
+        });
+    }
+});
 
 
 if (typeof pdfjsLib !== 'undefined') {
@@ -40,8 +79,58 @@ let attachedFiles = [];
 const THINK_TAG_PLACEHOLDER_PREFIX = "%%THINK_BLOCK_ID_";
 const THINK_TAG_PLACEHOLDER_SUFFIX = "%%";
 
+// Create a custom renderer for marked
+const renderer = new marked.Renderer();
+const originalCode = renderer.code.bind(renderer);
+
+// Override the renderer to handle math content properly
+marked.use({
+    extensions: [{
+        name: 'math',
+        level: 'inline',
+        start(src) {
+            const displayMatch = src.match(/\$\$|\\\[/)?.index;
+            const inlineMatch = src.match(/\$(?!\$)/)?.index;
+            return Math.min(...[displayMatch, inlineMatch].filter(x => x != null));
+        }, tokenizer(src) {
+            // Display math with $$ or \[ \]
+            const displayMatch = src.match(/^(?:\$\$([\s\S]*?[^\\])\$\$|\\\[([\s\S]*?[^\\])\\\])/);
+            if (displayMatch) {
+                return {
+                    type: 'math',
+                    raw: displayMatch[0],
+                    text: (displayMatch[1] || displayMatch[2]).trim(),
+                    displayMode: true
+                };
+            }
+            // Inline math with single $ but not inside code blocks
+            const inlineMatch = src.match(/^\$(?!\$)([^\$\\]|\\[\s\S])*\$/);
+            if (inlineMatch && !src.startsWith('`')) {
+                return {
+                    type: 'math',
+                    raw: inlineMatch[0],
+                    text: inlineMatch[0].slice(1, -1).trim(),
+                    displayMode: false
+                };
+            }
+        }, renderer(token) {
+            const latex = token.text.trim();
+            if (token.displayMode) {
+                return `<div class="math-wrapper"><div class="math" style="display: block;">\\[${latex}\\]</div></div>`;
+            } else {
+                return `<span class="math" style="display: inline;">\\(${latex}\\)</span>`;
+            }
+        }
+    }]
+});
+
+// Configure marked with our custom renderer
 marked.setOptions({
+    renderer: renderer,
     highlight: function (code, lang) {
+        if (lang === 'math' || lang === 'tex') {
+            return code;
+        }
         if (Prism.languages[lang]) {
             return Prism.highlight(code, Prism.languages[lang], lang);
         } else if (lang) {
@@ -50,7 +139,13 @@ marked.setOptions({
         }
         return Prism.highlight(code, Prism.languages.markup, 'markup');
     },
-    gfm: true, breaks: true, pedantic: false, smartLists: true, smartypants: false, headerIds: false, mangle: false
+    gfm: true,
+    breaks: true,
+    pedantic: false,
+    smartLists: true,
+    smartypants: false,
+    headerIds: false,
+    mangle: false
 });
 
 function escapeHTML(str) {
@@ -128,34 +223,44 @@ function populateModelSelector(models) {
 }
 
 function addCopyButtonsToCodeBlocks(parentElement) {
-    parentElement.querySelectorAll('pre').forEach(pre => {
-        // Only add button if it doesn't already exist
-        if (!pre.querySelector('.copy-code-button')) {
-            const button = document.createElement('button');
-            button.className = 'copy-code-button';
-            button.innerHTML = '<i class="bi bi-clipboard"></i>';  // Using Bootstrap icon
-
-            button.addEventListener('click', async () => {
-                const code = pre.querySelector('code')?.textContent || pre.textContent;
-                try {
-                    await navigator.clipboard.writeText(code);
-                    button.innerHTML = 'Copied!';
-                    button.classList.add('copied');
-                    setTimeout(() => {
-                        button.innerHTML = 'Copy';
-                        button.classList.remove('copied');
-                    }, 2000);
-                } catch (err) {
-                    console.error('Failed to copy text:', err);
-                    button.innerHTML = 'Failed to copy';
-                    setTimeout(() => {
-                        button.innerHTML = 'Copy';
-                    }, 2000);
-                }
-            });
-
-            pre.appendChild(button);
+    // Add copy buttons to code blocks that have a language class
+    parentElement.querySelectorAll('pre code[class*="language-"]').forEach(codeElement => {
+        const pre = codeElement.parentElement;
+        if (pre.querySelector('.copy-code-button')) {
+            return;
         }
+
+        const button = document.createElement('button');
+        button.className = 'copy-code-button btn btn-sm btn-outline-secondary';
+        button.title = 'Copy to clipboard';
+        button.innerHTML = '<i class="bi bi-clipboard"></i>';
+
+        if (pre.style.position !== 'relative') {
+            pre.style.position = 'relative';
+        }
+
+        button.addEventListener('click', async () => {
+            const code = codeElement.textContent;
+            try {
+                await navigator.clipboard.writeText(code.trim());
+                button.innerHTML = '<i class="bi bi-clipboard-check"></i>';
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.innerHTML = '<i class="bi bi-clipboard"></i>';
+                    button.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy text:', err);
+                button.innerHTML = '<i class="bi bi-clipboard-x"></i>';
+                button.classList.add('copy-error');
+                setTimeout(() => {
+                    button.innerHTML = '<i class="bi bi-clipboard"></i>';
+                    button.classList.remove('copy-error');
+                }, 2000);
+            }
+        });
+
+        pre.appendChild(button);
     });
 }
 
@@ -189,13 +294,12 @@ function displayMessage(sender, textContent, isStreaming = false, attachedFilena
 
         if (previewContainer.children.length > 0) {
             messageBubble.appendChild(previewContainer);
-        }
-
-        // Add file names note
-        if (attachedFiles.length > 0) {
+        }        // Add file names note only for non-image files
+        const nonImageFiles = attachedFiles.filter(file => !file.type.startsWith('image/'));
+        if (nonImageFiles.length > 0) {
             const attachmentNoteDiv = document.createElement('div');
             attachmentNoteDiv.classList.add('attachment-note');
-            const filenamesString = attachedFiles.map(f => escapeHTML(f.name)).join(', ');
+            const filenamesString = nonImageFiles.map(f => escapeHTML(f.name)).join(', ');
             attachmentNoteDiv.innerHTML = `Attached file(s): ${filenamesString}`;
             messageBubble.appendChild(attachmentNoteDiv);
         }
@@ -210,12 +314,22 @@ function displayMessage(sender, textContent, isStreaming = false, attachedFilena
         currentAiMessageContentDiv = contentDiv;
     } else {
         contentDiv.innerHTML = marked.parse(textContent);
-        Prism.highlightAllUnder(contentDiv);
-        addCopyButtonsToCodeBlocks(contentDiv);
-        if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
-            MathJax.typesetPromise([contentDiv])
-                .catch(err => console.warn(`MathJax processing error for ${sender} message:`, err));
-        }
+
+        // Wait for MathJax to be ready before processing math content
+        window.mathJaxReady.then(() => {
+            console.log('Typesetting math content...');
+            return MathJax.typesetPromise([contentDiv]);
+        }).then(() => {
+            console.log('Math typesetting complete');
+            // After math is rendered, handle code highlighting
+            Prism.highlightAllUnder(contentDiv);
+            addCopyButtonsToCodeBlocks(contentDiv);
+        }).catch(err => {
+            console.warn(`MathJax processing error: ${err}`);
+            // Fall back to just code highlighting if MathJax fails
+            Prism.highlightAllUnder(contentDiv);
+            addCopyButtonsToCodeBlocks(contentDiv);
+        });
     }
     messageBubble.appendChild(contentDiv);
 
@@ -233,12 +347,18 @@ function updateStreamingMessage(chunk) {
     if (currentAiMessageContentDiv) {
         currentAiMessageContentDiv.dataset.rawMarkdown = (currentAiMessageContentDiv.dataset.rawMarkdown || '') + chunk;
         const { processedMarkdown, thinkBlocks } = processThinkTagsInMarkdown(currentAiMessageContentDiv.dataset.rawMarkdown);
+
+        // Process math first to avoid markdown parser interfering with LaTeX
         const html = marked.parse(processedMarkdown);
-        currentAiMessageContentDiv.innerHTML = html;
-        renderThinkBlocksHTML(currentAiMessageContentDiv, thinkBlocks);
-        addCopyButtonsToCodeBlocks(currentAiMessageContentDiv);
-        MathJax.typesetPromise([currentAiMessageContentDiv]);
-        Prism.highlightAllUnder(currentAiMessageContentDiv);
+        currentAiMessageContentDiv.innerHTML = html; renderThinkBlocksHTML(currentAiMessageContentDiv, thinkBlocks);
+
+        // Process math and highlight code
+        window.mathJaxReady.then(() => {
+            return MathJax.typesetPromise([currentAiMessageContentDiv]);
+        }).catch(err => console.warn("MathJax error during streaming:", err))
+            .finally(() => {
+                Prism.highlightAllUnder(currentAiMessageContentDiv);
+            });
         scrollToBottom();
     }
 }
@@ -321,7 +441,15 @@ function finalizeAiMessage() {
         addThinkBlockListeners(currentAiMessageContentDiv);
         Prism.highlightAllUnder(currentAiMessageContentDiv);
         if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
-            MathJax.typesetPromise([currentAiMessageContentDiv]).catch(err => console.warn("MathJax (final):", err));
+            MathJax.typesetPromise([currentAiMessageContentDiv])
+                .then(() => {
+                    // Add copy buttons only after all other content processing is done
+                    addCopyButtonsToCodeBlocks(currentAiMessageContentDiv);
+                })
+                .catch(err => console.warn("MathJax (final):", err));
+        } else {
+            // If MathJax is not available, add copy buttons immediately
+            addCopyButtonsToCodeBlocks(currentAiMessageContentDiv);
         }
     }
     currentAiMessageElement = null; currentAiMessageContentDiv = null; scrollToBottom();
