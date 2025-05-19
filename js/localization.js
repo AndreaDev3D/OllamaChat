@@ -7,7 +7,8 @@ const supportedLanguages = {
     'de': 'Deutsch',
     'it': 'Italiano',
     'zh': '中文',
-    'ja': '日本語'
+    'ja': '日本語',
+    "tr": "Türkçe"
 };
 
 let currentLanguage = 'en';
